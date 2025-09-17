@@ -23,6 +23,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
+from tabulate import tabulate
+
 
 def _sanitize_sys_path() -> None:
     """Remove the repository root from ``sys.path`` to prefer pip packages."""
@@ -228,12 +230,38 @@ def _print_rows(title: str, rows: Iterable[ProfileRow]) -> None:
         print(f"{title}: no data")
         return
 
-    header = f"    {'Rank':>4}  {'Function':<70}  {'Calls':>9}  {'Total (s)':>11}  {'Cum (s)':>11}  {'Cum/Call (ms)':>14}"
-    print(title)
-    print("    " + "-" * 110)
-    width = max(len(row.function) for row in rows + [ProfileRow(0, '', 0, 0.0, 0.0, 0.0, None)])
+    # Prepare data for tabulate
+    table_data = []
     for row in rows:
-        print("    " + row.format(width))
+        # Truncate function name if too long for better readability
+        function_name = row.function.strip()
+        if len(function_name) > 60:
+            function_name = function_name[:57] + "..."
+        
+        table_data.append([
+            row.rank,
+            function_name,
+            f"{row.ncalls:,}",  # Add thousands separator
+            f"{row.tottime:.6f}",
+            f"{row.cumtime:.6f}",
+            f"{row.per_call_cum_ms:.6f}",
+            row.native_doc or ""  # Show native documentation if available
+        ])
+
+    # Define headers with descriptions
+    headers = [
+        "Rank",
+        "Function Name",
+        "Number of Calls",
+        "Total Time (s)",
+        "Cumulative Time (s)", 
+        "Cumulative Time per Call (ms)",
+        "Native Function Description"
+    ]
+
+    print(f"\n{title}")
+    print("=" * len(title))
+    print(tabulate(table_data, headers=headers, tablefmt="grid", stralign="left", numalign="right"))
     print()
 
 
@@ -247,16 +275,20 @@ def main(argv: Optional[Iterable[str]] = None) -> None:
     summary = profile_example(args.iterations, args.warmup, args.top)
 
     avg_wall_ms = (summary.total_wall_time / summary.iterations) * 1000.0
-    print("AEAD example profiling summary")
-    print("===============================")
-    print(
-        "Iterations: {iterations} (warm-up: {warmup})\nTotal wall-clock time: {wall:.6f}s\nAverage wall time per iteration: {avg:.6f}ms\n".format(
-            iterations=summary.iterations,
-            warmup=summary.warmup_iterations,
-            wall=summary.total_wall_time,
-            avg=avg_wall_ms,
-        )
-    )
+    
+    # Create summary table
+    summary_data = [
+        ["Total Iterations", f"{summary.iterations:,}"],
+        ["Warm-up Iterations", f"{summary.warmup_iterations:,}"],
+        ["Total Wall-clock Time", f"{summary.total_wall_time:.6f} seconds"],
+        ["Average Time per Iteration", f"{avg_wall_ms:.6f} milliseconds"],
+        ["Profiling Efficiency", f"{(summary.iterations / summary.total_wall_time):.2f} iterations/second"]
+    ]
+    
+    print("\nAEAD Example Profiling Summary")
+    print("=" * 35)
+    print(tabulate(summary_data, headers=["Metric", "Value"], tablefmt="grid", stralign="left"))
+    print()
 
     _print_rows("Top functions by cumulative time", summary.top_by_cumulative)
     _print_rows("Top functions by self time", summary.top_by_self)
